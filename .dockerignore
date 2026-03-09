@@ -1,0 +1,9 @@
+.venv
+.git
+__pycache__
+*.sqlite3
+*.pyc
+.pytest_cache
+.vscode
+.alembic.ini
+todo.db
