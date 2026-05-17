@@ -1,35 +1,34 @@
-# Étape 1 : Construction (Builder)
-FROM python:3.12.4-slim as builder
+FROM python:3.12-slim
 
-RUN pip install poetry==2.3.2
-
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VENV_IN_PROJECT=false
 
 WORKDIR /app
 
-# Copie uniquement les fichiers de dépendances pour profiter du cache Docker
-COPY pyproject.toml poetry.lock ./
+# System deps for psycopg2 and Pillow
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN poetry install --no-root --without dev
+# Install Poetry
+RUN pip install --no-cache-dir poetry==2.3.2
 
-# Étape 2 : Runtime
-FROM python:3.12.4-slim as runtime
+# Dependency layer (cached unless pyproject.toml changes)
+COPY pyproject.toml ./
+RUN poetry install --only main --no-root
 
-ENV VIRTUAL_ENV=/app/.venv \
-    PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
-
-WORKDIR /app
-
-# On récupère l'environnement virtuel de l'étape précédente
-COPY --from=builder /app/.venv /app/.venv
 COPY . .
 
-# Exposition du port FastAPI
+# Collect static files (fails gracefully if DATABASE_URL is not set yet)
+RUN DJANGO_SETTINGS_MODULE=config.settings.production \
+    SECRET_KEY=build-time-dummy \
+    DATABASE_URL=sqlite:///dummy.db \
+    poetry run python manage.py collectstatic --noinput || true
+
 EXPOSE 8000
 
-# Commande de lancement
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["poetry", "run", "gunicorn", "config.wsgi:application", \
+     "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "60"]

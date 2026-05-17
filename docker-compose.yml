@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: todo_db
+      POSTGRES_USER: todo_user
+      POSTGRES_PASSWORD: todo_password
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo_user -d todo_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    command: >
+      sh -c "poetry run python manage.py migrate
+             --settings=config.settings.development &&
+             poetry run python manage.py runserver 0.0.0.0:8000
+             --settings=config.settings.development"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgresql://todo_user:todo_password@db:5432/todo_db
+      SECRET_KEY: dev-secret-key-change-in-production
+      DEBUG: "True"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
